@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2016  Infinite Automation Software. All rights reserved.
+/*
+ * Copyright (C) 2021 Radix IoT LLC. All rights reserved.
  */
 package com.serotonin.m2m2.db.dao;
 
@@ -9,6 +9,7 @@ import java.io.UncheckedIOException;
 import java.sql.Clob;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.SQLTransientException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -44,7 +45,7 @@ import org.jooq.exception.NoDataFoundException;
 import org.jooq.impl.DSL;
 import org.jooq.impl.SQLDataType;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.dao.ConcurrencyFailureException;
+import org.springframework.dao.TransientDataAccessException;
 import org.springframework.jdbc.core.ResultSetExtractor;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -82,8 +83,7 @@ import net.jazdw.rql.parser.ASTNode;
 public abstract class AbstractBasicDao<T extends AbstractBasicVO, R extends Record, TABLE extends Table<R>> extends BaseDao implements AbstractBasicVOAccess<T> {
     protected Log LOG = LogFactory.getLog(getClass());
 
-    //Retry transactions that deadlock
-    //TODO Mango 4.0 make the retry criteria more accurate
+    // Retry all insert/update/delete that throw transient exceptions (e.g. transactions that deadlock)
     protected final int transactionRetries = Common.envProps.getInt("db.transaction.retries", 5);
 
     protected final TABLE table;
@@ -198,30 +198,33 @@ public abstract class AbstractBasicDao<T extends AbstractBasicVO, R extends Reco
         if (vo != null) {
             int deleted = 0;
             int tries = transactionRetries;
-            while(tries > 0) {
+            while (tries-- > 0) {
                 try {
                     deleted = withLockedRow(vo.getId(), (txStatus) -> {
                         deleteRelationalData(vo);
                         int result = create.deleteFrom(table).where(getIdField().eq(vo.getId())).execute();
-                        if(result > 0) {
+                        if (result > 0) {
                             deletePostRelationalData(vo);
                         }
                         return result;
                     });
                     break;
-                }catch(org.jooq.exception.DataAccessException | ConcurrencyFailureException e) {
-                    if(tries == 1) {
+                } catch (org.jooq.exception.DataAccessException e) {
+                    if (!(e.getCause() instanceof SQLTransientException) || tries == 0) {
+                        throw e;
+                    }
+                } catch (TransientDataAccessException e) {
+                    if (tries == 0) {
                         throw e;
                     }
                 }
-                tries--;
             }
 
-            if(this.countMonitor != null) {
+            if (this.countMonitor != null) {
                 this.countMonitor.addValue(-deleted);
             }
 
-            if(deleted > 0) {
+            if (deleted > 0) {
                 this.publishEvent(createDaoEvent(DaoEventType.DELETE, vo, null));
             }
 
@@ -250,7 +253,7 @@ public abstract class AbstractBasicDao<T extends AbstractBasicVO, R extends Reco
     @Override
     public void insert(T vo) {
         int tries = transactionRetries;
-        while(tries > 0) {
+        while (tries-- > 0) {
             try {
                 doInTransaction(status -> {
                     savePreRelationalData(null, vo);
@@ -266,12 +269,15 @@ public abstract class AbstractBasicDao<T extends AbstractBasicVO, R extends Reco
                     saveRelationalData(null, vo);
                 });
                 break;
-            }catch(org.jooq.exception.DataAccessException | ConcurrencyFailureException e) {
-                if(tries == 1) {
+            } catch (org.jooq.exception.DataAccessException e) {
+                if (!(e.getCause() instanceof SQLTransientException) || tries == 0) {
+                    throw e;
+                }
+            } catch (TransientDataAccessException e) {
+                if (tries == 0) {
                     throw e;
                 }
             }
-            tries--;
         }
 
         this.publishEvent(createDaoEvent(DaoEventType.CREATE, vo, null));
@@ -294,7 +300,7 @@ public abstract class AbstractBasicDao<T extends AbstractBasicVO, R extends Reco
     @Override
     public void update(T existing, T vo) {
         int tries = transactionRetries;
-        while(tries > 0) {
+        while (tries-- > 0) {
             try {
                 doInTransaction(status -> {
                     savePreRelationalData(existing, vo);
@@ -306,12 +312,15 @@ public abstract class AbstractBasicDao<T extends AbstractBasicVO, R extends Reco
                     saveRelationalData(existing, vo);
                 });
                 break;
-            }catch(org.jooq.exception.DataAccessException | ConcurrencyFailureException e) {
-                if(tries == 1) {
+            } catch (org.jooq.exception.DataAccessException e) {
+                if (!(e.getCause() instanceof SQLTransientException) || tries == 0) {
+                    throw e;
+                }
+            } catch (TransientDataAccessException e) {
+                if (tries == 0) {
                     throw e;
                 }
             }
-            tries--;
         }
 
         this.publishEvent(createDaoEvent(DaoEventType.UPDATE, vo, existing));
