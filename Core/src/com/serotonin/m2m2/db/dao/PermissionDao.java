@@ -18,6 +18,7 @@ import java.util.stream.Collectors;
 import org.jooq.Field;
 import org.jooq.Record;
 import org.jooq.SelectSeekStep2;
+import org.jooq.impl.DSL;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.stereotype.Repository;
@@ -160,7 +161,7 @@ public class PermissionDao extends BaseDao {
             int permissionIdFinal = permissionId;
             create.batch(
                     mintermIds.stream()
-                    .map(id -> create.insertInto(permissionsMinterms)
+                    .map(id -> DSL.insertInto(permissionsMinterms)
                             .columns(permissionsMinterms.permissionId, permissionsMinterms.mintermId)
                             .values(permissionIdFinal, id))
                     .collect(Collectors.toList()))
@@ -197,7 +198,7 @@ public class PermissionDao extends BaseDao {
             int mintermIdFinal = mintermId;
             create.batch(
                     roleIds.stream()
-                    .map(id -> create.insertInto(mintermsRoles)
+                    .map(id -> DSL.insertInto(mintermsRoles)
                             .columns(mintermsRoles.mintermId, mintermsRoles.roleId)
                             .values(mintermIdFinal, id))
                     .collect(Collectors.toList()))

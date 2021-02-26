@@ -18,6 +18,7 @@ import org.jooq.Record1;
 import org.jooq.SelectConditionStep;
 import org.jooq.SelectJoinStep;
 import org.jooq.SelectOnConditionStep;
+import org.jooq.impl.DSL;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationEventPublisher;
@@ -75,7 +76,7 @@ public class RoleDao extends AbstractVoDao<RoleVO, RolesRecord, Roles> {
         if(vo.getInherited() != null && vo.getInherited().size() > 0) {
             List<Query> inserts = new ArrayList<>();
             for(Role role : vo.getInherited()) {
-                inserts.add(this.create.insertInto(RoleInheritance.ROLE_INHERITANCE).columns(
+                inserts.add(DSL.insertInto(RoleInheritance.ROLE_INHERITANCE).columns(
                         RoleInheritance.ROLE_INHERITANCE.roleId, RoleInheritance.ROLE_INHERITANCE.inheritedRoleId)
                         .values(vo.getId(), role.getId()));
             }

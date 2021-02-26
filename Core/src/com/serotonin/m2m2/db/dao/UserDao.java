@@ -1,12 +1,8 @@
 /*
-    Copyright (C) 2014 Infinite Automation Systems Inc. All rights reserved.
-    @author Matthew Lohbihler
+ * Copyright (C) 2021 Radix IoT LLC. All rights reserved.
  */
 package com.serotonin.m2m2.db.dao;
 
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
@@ -21,26 +17,31 @@ import java.util.stream.Stream;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.checkerframework.checker.nullness.qual.NonNull;
+import org.jooq.BatchBindStep;
 import org.jooq.Field;
 import org.jooq.InsertValuesStep3;
 import org.jooq.Record;
 import org.jooq.Record1;
 import org.jooq.SelectConditionStep;
+import org.jooq.impl.DSL;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.EmptyResultDataAccessException;
-import org.springframework.jdbc.core.BatchPreparedStatementSetter;
 import org.springframework.stereotype.Repository;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.infiniteautomation.mango.db.query.RQLOperation;
 import com.infiniteautomation.mango.db.query.RQLSubSelectCondition;
 import com.infiniteautomation.mango.db.query.RQLToCondition.RQLVisitException;
+import com.infiniteautomation.mango.db.tables.Events;
+import com.infiniteautomation.mango.db.tables.MailingListMembers;
 import com.infiniteautomation.mango.db.tables.OAuth2Users;
 import com.infiniteautomation.mango.db.tables.Roles;
+import com.infiniteautomation.mango.db.tables.UserComments;
 import com.infiniteautomation.mango.db.tables.UserRoleMappings;
 import com.infiniteautomation.mango.db.tables.Users;
 import com.infiniteautomation.mango.db.tables.records.OAuth2UsersRecord;
@@ -76,6 +77,9 @@ public class UserDao extends AbstractVoDao<User, UsersRecord, Users> {
     private final Roles roles;
     private final RoleDao roleDao;
     private final OAuth2Users oauth;
+    private final UserComments userComments;
+    private final Events events;
+    private final MailingListMembers mailingListMembers;
 
     @Autowired
     private UserDao(PermissionService permissionService,
@@ -89,11 +93,15 @@ public class UserDao extends AbstractVoDao<User, UsersRecord, Users> {
         this.oauth = OAuth2Users.O_AUTH2_USERS;
         this.roles = Roles.ROLES;
         this.userRoleMappings = UserRoleMappings.USER_ROLE_MAPPINGS;
+        this.userComments = UserComments.USER_COMMENTS;
+        this.events = Events.EVENTS;
+        this.mailingListMembers = MailingListMembers.MAILING_LIST_MEMBERS;
     }
 
     /**
      * Get cached instance from Spring Context
-     * @return
+     *
+     * @return instance
      */
     public static UserDao getInstance() {
         return springInstance.get();
@@ -137,32 +145,34 @@ public class UserDao extends AbstractVoDao<User, UsersRecord, Users> {
 
     /**
      * Confirm that this username is not used
-     * @param username
-     * @param excludeId
-     * @return
+     *
+     * @param username  username to check
+     * @param excludeId user id to exclude from check
+     * @return true if the username is not in use
      */
     public boolean isUsernameUnique(String username, int excludeId) {
-        if(username == null) {
+        if (username == null) {
             return false;
-        }else {
+        } else {
             return this.getCountQuery().from(table).where(
-                    table.username.eq(username),
+                    table.username.equal(username),
                     table.id.notEqual(excludeId)).fetchSingleInto(Integer.class) == 0;
         }
     }
 
     /**
      * Confirm that this email address is not used
-     * @param email
-     * @param excludeId
-     * @return
+     *
+     * @param email     email address to check
+     * @param excludeId user id to exclude from check
+     * @return true if the email address is not in use
      */
     public boolean isEmailUnique(String email, int excludeId) {
-        if(email == null) {
+        if (email == null) {
             return false;
-        }else {
+        } else {
             return this.getCountQuery().from(table).where(
-                    table.email.eq(email),
+                    table.email.equal(email),
                     table.id.notEqual(excludeId)).fetchSingleInto(Integer.class) == 0;
         }
     }
@@ -177,14 +187,15 @@ public class UserDao extends AbstractVoDao<User, UsersRecord, Users> {
 
     /**
      * Get the roles for a user from the database mapping table
-     * @param vo
-     * @return
+     *
+     * @param vo the user
+     * @return a set of roles that the user has been directly assigned (not inherited roles)
      */
     public Set<Role> getUserRoles(User vo) {
         try (Stream<? extends Record> stream = create.select(roles.id, roles.xid)
                 .from(userRoleMappings)
-                .join(roles).on(userRoleMappings.roleId.eq(roles.id))
-                .where(userRoleMappings.userId.eq(vo.getId()))
+                .join(roles).on(userRoleMappings.roleId.equal(roles.id))
+                .where(userRoleMappings.userId.equal(vo.getId()))
                 .stream()) {
             return Collections.unmodifiableSet(stream.map(roleDao::mapRecordToRole).collect(Collectors.toSet()));
         }
@@ -197,54 +208,50 @@ public class UserDao extends AbstractVoDao<User, UsersRecord, Users> {
 
     @Override
     public void saveRelationalData(User existing, User vo) {
-        if(existing != null) {
+        if (existing != null) {
             //delete role mappings
-            ejt.update(USER_ROLES_DELETE, vo.getId());
+            create.deleteFrom(userRoleMappings)
+                    .where(userRoleMappings.userId.equal(vo.getId()))
+                    .execute();
         }
-        //insert role mappings
-        List<Role> entries = new ArrayList<>(vo.getRoles());
-        ejt.batchUpdate(USER_ROLE_INSERT, new BatchPreparedStatementSetter() {
-            @Override
-            public int getBatchSize() {
-                return entries.size();
-            }
 
-            @Override
-            public void setValues(PreparedStatement ps, int i) throws SQLException {
-                Role role = entries.get(i);
-                ps.setInt(1, role.getId());
-                ps.setInt(2, vo.getId());
-            }
-        });
+        //insert role mappings
+        BatchBindStep b = create.batch(
+                DSL.insertInto(userRoleMappings)
+                        .columns(userRoleMappings.roleId, userRoleMappings.userId)
+                        .values((Integer) null, null));
+
+        for (Role role : vo.getRoles()) {
+            b.bind(role.getId(), vo.getId());
+        }
+        b.execute();
     }
 
     /**
      * Get a user by their email address
-     * @param emailAddress
-     * @return
+     *
+     * @param emailAddress the email address of the user to find
+     * @return the user corresponding to the email address (or null if not found)
      */
     public User getUserByEmail(String emailAddress) {
         if (emailAddress == null) return null;
         return getJoinedSelectQuery()
-                .where(table.email.eq(emailAddress))
+                .where(table.email.equal(emailAddress))
                 .fetchOne(this::mapRecordLoadRelationalData);
     }
 
     public List<User> getActiveUsers() {
         return getJoinedSelectQuery()
-                .where(table.disabled.eq(boolToChar(false)))
+                .where(table.disabled.equal(boolToChar(false)))
                 .fetch(this::mapRecordLoadRelationalData);
     }
-
-    private static final String USER_ROLES_DELETE = "DELETE FROM userRoleMappings WHERE userId=?";
-    private static final String USER_ROLE_INSERT = "INSERT INTO userRoleMappings (roleId, userId) VALUES (?,?)";
 
     @Override
     public void insert(User vo) {
         // ensure passwords prefixed with {PLAINTEXT} are always hashed before database insertion/update
         // we hash plain text passwords after validation has taken place so we can check complexity etc
         vo.hashPlainText();
-        if(vo.getCreatedTs() == null) {
+        if (vo.getCreatedTs() == null) {
             vo.setCreated(new Date(Common.timer.currentTimeMillis()));
         }
         enforceUserRole(vo);
@@ -294,7 +301,7 @@ public class UserDao extends AbstractVoDao<User, UsersRecord, Users> {
 
     private void enforceUserRole(User vo) {
         Role userRole = PermissionHolder.USER_ROLE;
-        if(!vo.getRoles().contains(userRole)) {
+        if (!vo.getRoles().contains(userRole)) {
             Set<Role> updated = new HashSet<>(vo.getRoles());
             updated.add(userRole);
             vo.setRoles(Collections.unmodifiableSet(updated));
@@ -323,15 +330,18 @@ public class UserDao extends AbstractVoDao<User, UsersRecord, Users> {
 
     @Override
     public void deleteRelationalData(User vo) {
-        Object[] args = new Object[] { vo.getId() };
-        ejt.update("UPDATE userComments SET userId=null WHERE userId=?", args);
-        ejt.update("DELETE FROM mailingListMembers WHERE userId=?", args);
-        ejt.update("UPDATE events SET ackUserId=null, alternateAckSource=? WHERE ackUserId=?", new TranslatableMessage("events.ackedByDeletedUser").serialize(), vo.getId());
+        create.update(userComments).setNull(userComments.userId).where(userComments.userId.equal(vo.getId())).execute();
+        create.deleteFrom(mailingListMembers).where(mailingListMembers.userId.equal(vo.getId())).execute();
+        create.update(events).setNull(events.ackUserId)
+                .set(events.alternateAckSource, new TranslatableMessage("events.ackedByDeletedUser").serialize())
+                .where(events.ackUserId.equal(vo.getId()))
+                .execute();
     }
 
     /**
      * Revoke all tokens for user
-     * @param user
+     *
+     * @param user the user who's tokens will be revoked
      */
     public void revokeTokens(User user) {
         int userId = user.getId();
@@ -339,10 +349,15 @@ public class UserDao extends AbstractVoDao<User, UsersRecord, Users> {
 
         int currentTokenVersion = user.getTokenVersion();
         int newTokenVersion = currentTokenVersion + 1;
-        String username = user.getUsername();
 
+        int count = create.update(table)
+                .set(table.tokenVersion, newTokenVersion)
+                .where(
+                        table.id.equal(user.getId()),
+                        table.tokenVersion.equal(currentTokenVersion),
+                        table.username.equal(user.getUsername())
+                ).execute();
 
-        int count = ejt.update("UPDATE users SET tokenVersion = ? WHERE id = ? AND tokenVersion = ? AND username = ?", newTokenVersion, userId, currentTokenVersion, username);
         if (count == 0) {
             throw new EmptyResultDataAccessException("Updated no rows", 1);
         }
@@ -364,10 +379,17 @@ public class UserDao extends AbstractVoDao<User, UsersRecord, Users> {
         int currentPasswordVersion = user.getPasswordVersion();
         int newPasswordVersion = currentPasswordVersion + 1;
         long passwordChangeTimestamp = Common.timer.currentTimeMillis();
-        String username = user.getUsername();
 
-        int count = ejt.update("UPDATE users SET password = ?, passwordVersion = ?, passwordChangeTimestamp = ? WHERE id = ? AND passwordVersion = ? AND username = ?",
-                newPasswordHash, newPasswordVersion, passwordChangeTimestamp, userId, currentPasswordVersion, username);
+        int count = create.update(table)
+                .set(table.password, newPasswordHash)
+                .set(table.passwordVersion, newPasswordVersion)
+                .set(table.passwordChangeTimestamp, passwordChangeTimestamp)
+                .where(
+                        table.id.equal(userId),
+                        table.passwordVersion.equal(currentPasswordVersion),
+                        table.username.equal(user.getUsername())
+                ).execute();
+
         if (count == 0) {
             throw new EmptyResultDataAccessException("Updated no rows", 1);
         }
@@ -389,23 +411,26 @@ public class UserDao extends AbstractVoDao<User, UsersRecord, Users> {
 
         long loginTime = Common.timer.currentTimeMillis();
         user.setLastLogin(loginTime);
-        ejt.update("UPDATE users SET lastLogin=? WHERE id=?", loginTime, user.getId());
+        create.update(table).set(table.lastLogin, loginTime)
+                .where(table.id.equal(user.getId())).execute();
         eventPublisher.publishEvent(new DaoEvent<>(this, DaoEventType.UPDATE, user, old));
     }
 
     public void saveHomeUrl(int userId, String homeUrl) {
         User old = get(userId);
-        ejt.update("UPDATE users SET homeUrl=? WHERE id=?", homeUrl, userId);
+        create.update(table).set(table.homeUrl, homeUrl)
+                .where(table.id.equal(userId)).execute();
         User user = get(userId);
-        publishAuditEvent(new ChangeAuditEvent<User>(this.auditEventType, Common.getUser(), old, user));
+        publishAuditEvent(new ChangeAuditEvent<>(this.auditEventType, Common.getUser(), old, user));
         eventPublisher.publishEvent(new DaoEvent<>(this, DaoEventType.UPDATE, user, old));
     }
 
     public void saveMuted(int userId, boolean muted) {
         User old = get(userId);
-        ejt.update("UPDATE users SET muted=? WHERE id=?", boolToChar(muted), userId);
+        create.update(table).set(table.muted, boolToChar(muted))
+                .where(table.id.equal(userId)).execute();
         User user = get(userId);
-        publishAuditEvent(new ChangeAuditEvent<User>(this.auditEventType, Common.getUser(), old, user));
+        publishAuditEvent(new ChangeAuditEvent<>(this.auditEventType, Common.getUser(), old, user));
         eventPublisher.publishEvent(new DaoEvent<>(this, DaoEventType.UPDATE, user, old));
     }
 
@@ -440,7 +465,7 @@ public class UserDao extends AbstractVoDao<User, UsersRecord, Users> {
     }
 
     @Override
-    public User mapRecord(Record record) {
+    public @NonNull User mapRecord(@NonNull Record record) {
         User user = new User();
         user.setId(record.get(table.id));
         user.setUsername(record.get(table.username));
@@ -486,8 +511,8 @@ public class UserDao extends AbstractVoDao<User, UsersRecord, Users> {
             OAuth2LinkedAccount oAuth2Account = (OAuth2LinkedAccount) account;
             return create.select(table.fields())
                     .from(oauth)
-                    .leftJoin(table).on(oauth.userId.eq(table.id))
-                    .where(oauth.issuer.eq(oAuth2Account.getIssuer()).and(oauth.subject.eq(oAuth2Account.getSubject())))
+                    .leftJoin(table).on(oauth.userId.equal(table.id))
+                    .where(oauth.issuer.equal(oAuth2Account.getIssuer()).and(oauth.subject.equal(oAuth2Account.getSubject())))
                     .fetchOptional(this::mapRecord);
         } else {
             throw new UnsupportedOperationException();
@@ -532,7 +557,8 @@ public class UserDao extends AbstractVoDao<User, UsersRecord, Users> {
 
     /**
      * Create an RQL mapping to allow querying on user.roles
-     * @return
+     *
+     * @return a sub-select condition
      */
     public RQLSubSelectCondition createUserRoleCondition() {
         return (operation, node) -> {
@@ -546,14 +572,14 @@ public class UserDao extends AbstractVoDao<User, UsersRecord, Users> {
             Object roleXid = arguments.get(1);
             Integer roleId = null;
 
-            Role role = permissionService.getRole((String)roleXid);
-            if(role != null) {
+            Role role = permissionService.getRole((String) roleXid);
+            if (role != null) {
                 roleId = role.getId();
             }
 
             SelectConditionStep<Record1<Integer>> afterWhere = create.select(userRoleMappings.userId)
                     .from(userRoleMappings)
-                    .where(userRoleMappings.roleId.eq(roleId));
+                    .where(userRoleMappings.roleId.equal(roleId));
 
             if (operation == RQLOperation.CONTAINS) {
                 return table.id.in(afterWhere.asField());
@@ -564,7 +590,8 @@ public class UserDao extends AbstractVoDao<User, UsersRecord, Users> {
 
     /**
      * Create an RQL mapping to allow querying on user.inheritedRoles
-     * @return
+     *
+     * @return a sub-select condition
      */
     public RQLSubSelectCondition createUserInheritedRoleCondition() {
         return (operation, node) -> {

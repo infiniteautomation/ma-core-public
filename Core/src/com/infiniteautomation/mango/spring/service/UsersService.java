@@ -1,5 +1,5 @@
-/**
- * Copyright (C) 2018  Infinite Automation Software. All rights reserved.
+/*
+ * Copyright (C) 2021 Radix IoT LLC. All rights reserved.
  */
 package com.infiniteautomation.mango.spring.service;
 
@@ -73,6 +73,7 @@ import freemarker.template.TemplateException;
  *
  * @author Terry Packer
  */
+@SuppressWarnings("SpringEventListenerInspection")
 @Service
 public class UsersService extends AbstractVOService<User, UserDao> implements CachingService {
 
@@ -88,7 +89,7 @@ public class UsersService extends AbstractVOService<User, UserDao> implements Ca
     public UsersService(UserDao dao, PermissionService permissionService,
                         SystemSettingsDao systemSettings,
                         PasswordService passwordService,
-                        UserCreatePermission createPermission,
+                        @SuppressWarnings("SpringJavaInjectionPointsAutowiringInspection") UserCreatePermission createPermission,
                         ApplicationEventPublisher eventPublisher,
                         Environment env) {
         super(dao, permissionService);
@@ -178,8 +179,10 @@ public class UsersService extends AbstractVOService<User, UserDao> implements Ca
     /**
      * Get a user by their email address
      *
-     * @param emailAddress
-     * @return
+     * @param emailAddress the email address of the user to find
+     * @return the user corresponding to the email address
+     * @throws NotFoundException if the email address was not found in the database
+     * @throws PermissionException if the current user does not have permission to read this user
      */
     public User getUserByEmail(String emailAddress) throws NotFoundException, PermissionException {
         User vo = dao.getUserByEmail(emailAddress);
@@ -291,9 +294,9 @@ public class UsersService extends AbstractVOService<User, UserDao> implements Ca
     /**
      * Lock a user's password
      *
-     * @param username
-     * @throws PermissionException
-     * @throws NotFoundException
+     * @param username the username of the user to lock
+     * @throws NotFoundException if the username was not found in the database
+     * @throws PermissionException if the current user does not have permission to edit this user
      */
     public void lockPassword(String username) throws PermissionException, NotFoundException {
         User toLock = this.get(username);
@@ -417,7 +420,7 @@ public class UsersService extends AbstractVOService<User, UserDao> implements Ca
         Set<Role> inherited = permissionService.getAllInheritedRoles(holder);
 
         //Every user must have the user role
-        if(!inherited.contains(PermissionHolder.USER_ROLE)) {
+        if (!inherited.contains(PermissionHolder.USER_ROLE)) {
             result.addMessage("roles", new TranslatableMessage("users.validate.mustHaveUserRole"));
         }
         return result;
@@ -501,6 +504,7 @@ public class UsersService extends AbstractVOService<User, UserDao> implements Ca
             }
 
             try {
+                //noinspection ResultOfMethodCallIgnored
                 ZoneId.of(timezone);
             } catch (DateTimeException e) {
                 response.addMessage("timezone", new TranslatableMessage("validate.invalidValue"));
@@ -523,8 +527,6 @@ public class UsersService extends AbstractVOService<User, UserDao> implements Ca
                 response.addMessage("organizationalRole", new TranslatableMessage("validate.notLongerThan", 80));
             }
         }
-
-
 
 
         return response;
@@ -550,12 +552,14 @@ public class UsersService extends AbstractVOService<User, UserDao> implements Ca
     }
 
     /**
-     * @param username
-     * @param sendEmail
-     * @return
-     * @throws IOException
-     * @throws TemplateException
-     * @throws AddressException
+     * @param username username of user to approve
+     * @param sendEmail send email to user notifying them
+     * @return the approved user
+     * @throws NotFoundException if the username was not found in the database
+     * @throws PermissionException if the current user does not have permission to edit this user
+     * @throws TemplateException if there was an error in the email template
+     * @throws IOException error generating email content
+     * @throws AddressException email address was invalid
      */
     public User approveUser(String username, boolean sendEmail) throws PermissionException, NotFoundException, TemplateException, IOException, AddressException {
         User existing = this.get(username);
@@ -563,11 +567,13 @@ public class UsersService extends AbstractVOService<User, UserDao> implements Ca
         approved.setDisabled(false);
         update(existing, approved);
 
-        Translations translations = existing.getTranslations();
-        Map<String, Object> model = new HashMap<>();
-        TranslatableMessage subject = new TranslatableMessage("ftl.userApproved.subject", this.systemSettings.getValue(SystemSettingsDao.INSTANCE_DESCRIPTION));
-        MangoEmailContent content = new MangoEmailContent("accountApproved", model, translations, subject.translate(translations), StandardCharsets.UTF_8);
-        EmailWorkItem.queueEmail(existing.getEmail(), content);
+        if (sendEmail) {
+            Translations translations = existing.getTranslations();
+            Map<String, Object> model = new HashMap<>();
+            TranslatableMessage subject = new TranslatableMessage("ftl.userApproved.subject", this.systemSettings.getValue(SystemSettingsDao.INSTANCE_DESCRIPTION));
+            MangoEmailContent content = new MangoEmailContent("accountApproved", model, translations, subject.translate(translations), StandardCharsets.UTF_8);
+            EmailWorkItem.queueEmail(existing.getEmail(), content);
+        }
 
         return approved;
     }

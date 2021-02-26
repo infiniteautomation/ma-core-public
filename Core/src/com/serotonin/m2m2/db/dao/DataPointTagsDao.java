@@ -112,8 +112,8 @@ public class DataPointTagsDao extends BaseDao {
         String name = dataPoint.getName();
         String deviceName = dataPoint.getDeviceName();
 
-        BatchBindStep b = this.create.batch(
-                this.create.insertInto(table)
+        BatchBindStep b = create.batch(
+                DSL.insertInto(table)
                 .columns(table.dataPointId, table.tagKey, table.tagValue)
                 .values((Integer) null, null, null));
         tags.forEach((key, value) -> b.bind(dataPointId, key, value));
