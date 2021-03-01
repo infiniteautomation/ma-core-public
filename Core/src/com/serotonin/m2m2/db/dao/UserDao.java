@@ -46,6 +46,7 @@ import com.infiniteautomation.mango.db.tables.UserRoleMappings;
 import com.infiniteautomation.mango.db.tables.Users;
 import com.infiniteautomation.mango.db.tables.records.OAuth2UsersRecord;
 import com.infiniteautomation.mango.db.tables.records.UsersRecord;
+import com.infiniteautomation.mango.permission.MangoPermission;
 import com.infiniteautomation.mango.spring.MangoRuntimeContextConfiguration;
 import com.infiniteautomation.mango.spring.events.DaoEvent;
 import com.infiniteautomation.mango.spring.events.DaoEventType;
@@ -204,6 +205,17 @@ public class UserDao extends AbstractVoDao<User, UsersRecord, Users> {
     @Override
     public void loadRelationalData(User vo) {
         vo.setRoles(getUserRoles(vo));
+        vo.setReadPermission(permissionService.get(vo.getReadPermission().getId()));
+        vo.setEditPermission(permissionService.get(vo.getEditPermission().getId()));
+    }
+
+    @Override
+    public void savePreRelationalData(User existing, User vo) {
+        super.savePreRelationalData(existing, vo);
+        MangoPermission readPermission = permissionService.findOrCreate(vo.getReadPermission());
+        vo.setReadPermission(readPermission);
+        MangoPermission editPermission = permissionService.findOrCreate(vo.getEditPermission());
+        vo.setEditPermission(editPermission);
     }
 
     @Override
@@ -213,6 +225,13 @@ public class UserDao extends AbstractVoDao<User, UsersRecord, Users> {
             create.deleteFrom(userRoleMappings)
                     .where(userRoleMappings.userId.equal(vo.getId()))
                     .execute();
+
+            if (!existing.getReadPermission().equals(vo.getReadPermission())) {
+                permissionService.deletePermissions(existing.getReadPermission());
+            }
+            if (!existing.getEditPermission().equals(vo.getEditPermission())) {
+                permissionService.deletePermissions(existing.getEditPermission());
+            }
         }
 
         //insert role mappings
@@ -225,6 +244,14 @@ public class UserDao extends AbstractVoDao<User, UsersRecord, Users> {
             b.bind(role.getId(), vo.getId());
         }
         b.execute();
+    }
+
+    @Override
+    public void deletePostRelationalData(User vo) {
+        super.deletePostRelationalData(vo);
+        MangoPermission readPermission = vo.getReadPermission();
+        MangoPermission editPermission = vo.getEditPermission();
+        permissionService.deletePermissions(readPermission, editPermission);
     }
 
     /**
@@ -461,6 +488,8 @@ public class UserDao extends AbstractVoDao<User, UsersRecord, Users> {
         record.set(table.createdTs, vo.getCreatedTs());
         record.set(table.emailVerifiedTs, vo.getEmailVerifiedTimestamp());
         record.set(table.data, convertData(vo.getData()));
+        record.set(table.readPermissionId, vo.getReadPermission().getId());
+        record.set(table.editPermissionId, vo.getEditPermission().getId());
         return record;
     }
 
@@ -498,6 +527,8 @@ public class UserDao extends AbstractVoDao<User, UsersRecord, Users> {
             user.setEmailVerifiedDate(new Date(emailVerifiedTs));
         }
         user.setData(extractDataFromObject(record.get(table.data)));
+        user.setReadPermission(new MangoPermission(record.get(table.readPermissionId)));
+        user.setEditPermission(new MangoPermission(record.get(table.editPermissionId)));
         return user;
     }
 

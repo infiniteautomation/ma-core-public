@@ -539,7 +539,8 @@ public class UsersService extends AbstractVOService<User, UserDao> implements Ca
         }
 
         return holder.getUser() != null && holder.getUser().getId() == vo.getId() &&
-                permissionService.hasPermission(holder, editSelfPermission.getPermission());
+                permissionService.hasPermission(holder, editSelfPermission.getPermission()) ||
+                permissionService.hasPermission(holder, vo.getEditPermission());
     }
 
     @Override
@@ -548,7 +549,8 @@ public class UsersService extends AbstractVOService<User, UserDao> implements Ca
             return true;
         }
 
-        return user.getUser() != null && user.getUser().getId() == vo.getId();
+        return user.getUser() != null && user.getUser().getId() == vo.getId() ||
+                permissionService.hasPermission(user, vo.getReadPermission());
     }
 
     /**

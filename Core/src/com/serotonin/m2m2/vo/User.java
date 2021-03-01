@@ -1,6 +1,5 @@
 /*
-    Copyright (C) 2014 Infinite Automation Systems Inc. All rights reserved.
-    @author Matthew Lohbihler
+ * Copyright (C) 2021 Radix IoT LLC. All rights reserved.
  */
 package com.serotonin.m2m2.vo;
 
@@ -23,6 +22,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.infiniteautomation.mango.permission.MangoPermission;
 import com.infiniteautomation.mango.spring.service.PasswordService;
 import com.infiniteautomation.mango.spring.service.PermissionService;
 import com.infiniteautomation.mango.spring.service.UsersService;
@@ -104,7 +104,11 @@ public class User extends AbstractVO implements SetPointSource, JsonSerializable
     @JsonProperty
     private JsonNode data;
     @JsonProperty
-    private volatile Set<Role> roles = Collections.unmodifiableSet(Collections.singleton(PermissionHolder.USER_ROLE));
+    private MangoPermission readPermission = new MangoPermission();
+    @JsonProperty
+    private MangoPermission editPermission = new MangoPermission();
+    @JsonProperty
+    private volatile Set<Role> roles = Collections.singleton(PermissionHolder.USER_ROLE);
 
     //
     // Session data. The user object is stored in session, and some other session-based information is cached here
@@ -589,6 +593,22 @@ public class User extends AbstractVO implements SetPointSource, JsonSerializable
     @Override
     public boolean isPermissionHolderDisabled() {
         return this.disabled;
+    }
+
+    public MangoPermission getReadPermission() {
+        return readPermission;
+    }
+
+    public void setReadPermission(MangoPermission readPermission) {
+        this.readPermission = readPermission;
+    }
+
+    public MangoPermission getEditPermission() {
+        return editPermission;
+    }
+
+    public void setEditPermission(MangoPermission editPermission) {
+        this.editPermission = editPermission;
     }
 
     private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
