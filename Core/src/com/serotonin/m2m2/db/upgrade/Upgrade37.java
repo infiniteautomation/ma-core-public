@@ -26,23 +26,32 @@ public class Upgrade37 extends DBUpgrade implements PermissionMigration {
         Users users = Users.USERS;
         Permissions permissions = Permissions.PERMISSIONS;
 
+        create.batch(
+                // allow null values for now
+                DSL.alterTable(users).addColumn(users.readPermissionId.getName(), users.readPermissionId.getDataType().nullable(true)),
+                DSL.alterTable(users).addColumn(users.editPermissionId.getName(), users.editPermissionId.getDataType().nullable(true))
+        ).execute();
+
         doInTransaction(txStatus -> {
             MangoPermission adminOnlyPermission = getOrCreatePermissionNoCache(MangoPermission.superadminOnly());
             create.batch(
-                    DSL.alterTable(users).addColumn(users.readPermissionId),
-                    DSL.alterTable(users).addColumn(users.editPermissionId),
                     DSL.update(users).set(users.readPermissionId, adminOnlyPermission.getId()),
-                    DSL.update(users).set(users.editPermissionId, adminOnlyPermission.getId()),
-                    DSL.alterTable(users).add(DSL.constraint("usersFk1")
-                            .foreignKey(users.readPermissionId)
-                            .references(permissions, permissions.id)
-                            .onDeleteRestrict()),
-                    DSL.alterTable(users).add(DSL.constraint("usersFk2")
-                            .foreignKey(users.editPermissionId)
-                            .references(permissions, permissions.id)
-                            .onDeleteRestrict())
+                    DSL.update(users).set(users.editPermissionId, adminOnlyPermission.getId())
             ).execute();
         });
+        create.batch(
+                // change columns to non-null
+                DSL.alterTable(users).alterColumn(users.readPermissionId).set(users.readPermissionId.getDataType()),
+                DSL.alterTable(users).alterColumn(users.editPermissionId).set(users.editPermissionId.getDataType()),
+                DSL.alterTable(users).add(DSL.constraint("usersFk1")
+                        .foreignKey(users.readPermissionId)
+                        .references(permissions, permissions.id)
+                        .onDeleteRestrict()),
+                DSL.alterTable(users).add(DSL.constraint("usersFk2")
+                        .foreignKey(users.editPermissionId)
+                        .references(permissions, permissions.id)
+                        .onDeleteRestrict())
+        ).execute();
     }
 
     @Override
