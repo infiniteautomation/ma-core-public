@@ -126,12 +126,18 @@ CREATE TABLE users
     createdTs                   BIGINT       NOT NULL,
     emailVerifiedTs             BIGINT,
     data                        LONGTEXT,
+    readPermissionId            INT          NOT NULL,
+    editPermissionId            INT          NOT NULL,
     PRIMARY KEY (id)
 );
 ALTER TABLE users
     ADD CONSTRAINT username_unique UNIQUE (username);
 ALTER TABLE users
     ADD CONSTRAINT email_unique UNIQUE (email);
+ALTER TABLE users
+    ADD CONSTRAINT usersFk1 FOREIGN KEY (readPermissionId) REFERENCES permissions (id) ON DELETE RESTRICT;
+ALTER TABLE users
+    ADD CONSTRAINT usersFk2 FOREIGN KEY (editPermissionId) REFERENCES permissions (id) ON DELETE RESTRICT;
 
 -- Links OAuth2 users to a Mango user
 CREATE TABLE oAuth2Users

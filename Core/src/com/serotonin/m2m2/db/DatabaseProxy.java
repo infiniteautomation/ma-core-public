@@ -22,6 +22,7 @@ import org.jooq.conf.RenderQuotedNames;
 import org.jooq.impl.DefaultConfiguration;
 import org.jooq.tools.StopWatchListener;
 
+import com.infiniteautomation.mango.db.tables.Permissions;
 import com.infiniteautomation.mango.db.tables.RoleInheritance;
 import com.infiniteautomation.mango.db.tables.Roles;
 import com.infiniteautomation.mango.db.tables.SystemSettings;
@@ -207,6 +208,7 @@ public interface DatabaseProxy extends TransactionCapable {
         Users u = Users.USERS;
         UserRoleMappings urm = UserRoleMappings.USER_ROLE_MAPPINGS;
         RoleInheritance ri = RoleInheritance.ROLE_INHERITANCE;
+        Permissions permissions = Permissions.PERMISSIONS;
 
         context.insertInto(ss, ss.settingName, ss.settingValue)
                 // Add the settings flag that this is a new instance. This flag is removed when an administrator logs in.
@@ -228,6 +230,14 @@ public interface DatabaseProxy extends TransactionCapable {
                 .values(PermissionHolder.USER_ROLE.getId(), PermissionHolder.ANONYMOUS_ROLE.getId())
                 .execute();
 
+        // create superadmin only permission, with no minterm mappings
+        int adminOnlyPermissionId = context.insertInto(permissions)
+                .defaultValues()
+//                .values(default_(permissions.id))
+                .returningResult(permissions.id)
+                .fetchOptional().orElseThrow(IllegalStateException::new)
+                .get(permissions.id);
+
         if (Common.envProps.getBoolean("initialize.admin.create")) {
             long created = System.currentTimeMillis();
 
@@ -248,6 +258,8 @@ public interface DatabaseProxy extends TransactionCapable {
                     .set(u.passwordChangeTimestamp, created)
                     .set(u.sessionExpirationOverride, BaseDao.boolToChar(false))
                     .set(u.createdTs, created)
+                    .set(u.readPermissionId, adminOnlyPermissionId)
+                    .set(u.editPermissionId, adminOnlyPermissionId)
                     .returningResult(u.id)
                     .fetchOptional().orElseThrow(IllegalStateException::new)
                     .get(u.id);
