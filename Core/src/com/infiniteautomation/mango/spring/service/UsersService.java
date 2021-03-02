@@ -363,11 +363,8 @@ public class UsersService extends AbstractVOService<User, UserDao> implements Ca
                 if (!inherited.containsAll(vo.getRoles())) {
                     result.addContextualMessage("roles", "validate.role.invalidModification", PermissionService.implodeRoles(inherited));
                 }
-                //Cannot change roles as non superadmin
-                // TODO Mango 4.0
-                // Should we allow users to add explicit roles to themselves that they currently inherit?
-                // Can they remove an explicit role from themselves if they still inherit it?
 
+                //Cannot change your own roles
                 if (!Objects.equals(existing.getRoles(), vo.getRoles())) {
                     result.addContextualMessage("roles", "validate.role.modifyOwnRoles");
                 }
