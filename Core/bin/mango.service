@@ -4,8 +4,6 @@ After=mysqld.service
 StartLimitIntervalSec=0
 
 [Service]
-# JAVA_HOME should be set in /etc/environment
-EnvironmentFile=/etc/environment
 # only log errors to stdout, don't include date
 Environment=mango_appender_stdout_level=error "mango_appender_stdout_pattern=%%-5p (%%C.%%M:%%L) - %%m %%n"
 Type=forking

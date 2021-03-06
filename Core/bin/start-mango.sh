@@ -1,33 +1,23 @@
 #!/bin/sh
 
 #
-# Copyright (C) 2019 Infinite Automation Systems Inc. All rights reserved.
+# Copyright (C) 2021 Radix IoT LLC. All rights reserved.
 # @author Jared Wiltshire
-# @author Matthew Lohbihler
 #
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+. "$SCRIPT_DIR"/getenv.sh
 
-# Only set MA_HOME if not already set
-[ -z "$MA_HOME" ] && MA_HOME="$(dirname -- "$SCRIPT_DIR")"
-
-if [ ! -d "$MA_HOME" ]; then
-    echo 'Error: MA_HOME is not set or is not a directory'
-    exit 1
-fi
-
-echo MA_HOME is "$MA_HOME"
-
-if [ -e "$MA_HOME"/bin/ma.pid ]; then
-	PID="$(cat "$MA_HOME"/bin/ma.pid)"
+if [ -e "$MA_DATA"/ma.pid ]; then
+	PID="$(cat "$MA_DATA"/ma.pid)"
 	if ps -p "$PID" > /dev/null 2>&1; then
 		echo "Mango is already running at PID $PID"
 		exit 2
 	fi
 	# Clean up old PID file
-	rm -f "$MA_HOME"/bin/ma.pid
+	rm -f "$MA_DATA"/ma.pid
 fi
 
 # This will ensure that the logs are written to the correct directories.
@@ -58,18 +48,17 @@ for f in "$MA_HOME"/m2m2-core-*.zip; do
 
 		# Unzip core. The exact name is unknown, but there should only be one, so iterate
 		unzip -o "$f"
-	    rm "$f"
+    rm "$f"
 
 		chmod +x "$MA_HOME"/bin/*.sh
-		chmod +x "$MA_HOME"/bin/ext-available/*.sh
 	fi
 done
 
 # Construct the Java classpath
 MA_CP="$MA_HOME/lib/*"
 
-if [ -e "$MA_HOME/overrides/start-options.sh" ]; then
-	. "$MA_HOME/overrides/start-options.sh"
+if [ -e "$MA_DATA/start-options.sh" ]; then
+	. "$MA_DATA/start-options.sh"
 fi
 
 if [ -n "$MA_JAVA_OPTS" ]; then
@@ -80,11 +69,13 @@ fi
 
 CLASSPATH="$MA_CP" \
 "$EXECJAVA" $MA_JAVA_OPTS -server \
+	"-Dmango.config=$MA_ENV_PROPERTIES" \
 	"-Dmango.paths.home=$MA_HOME" \
+	"-Dmango.paths.data=$MA_DATA" \
 	com.serotonin.m2m2.Main &
 
 PID=$!
-echo $PID > "$MA_HOME"/bin/ma.pid
+echo $PID > "$MA_DATA"/ma.pid
 echo "Mango Automation started with process ID: " $PID
 
 exit 0

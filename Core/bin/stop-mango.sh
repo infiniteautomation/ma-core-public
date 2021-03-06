@@ -8,19 +8,13 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+. "$SCRIPT_DIR"/getenv.sh
+
 SIGNAL=TERM
-[ ! -z "$1" ] && SIGNAL="$1"
+[ -n "$1" ] && SIGNAL="$1"
 
-# Only set MA_HOME if not already set
-[ -z "$MA_HOME" ] && MA_HOME="$(dirname -- "$SCRIPT_DIR")"
-
-if [ ! -d "$MA_HOME" ]; then
-    echo 'Error: MA_HOME is not set or is not a directory'
-    exit 1
-fi
-
-if [ -e "$MA_HOME/bin/ma.pid" ]; then
-	PID="$(cat "$MA_HOME/bin/ma.pid")"
+if [ -e "$MA_DATA/ma.pid" ]; then
+	PID="$(cat "$MA_DATA/ma.pid")"
 	echo "Killing Mango PID $PID"
 
 	while kill -"$SIGNAL" "$PID" > /dev/null 2>&1; do
@@ -28,9 +22,9 @@ if [ -e "$MA_HOME/bin/ma.pid" ]; then
 	done
 
 	# Clean up PID file
-	rm -f "$MA_HOME/bin/ma.pid"
+	rm -f "$MA_DATA/ma.pid"
 else
-	echo "Mango PID file $MA_HOME/bin/ma.pid does not exist, did you start Mango using start-mango.sh?"
+	echo "Mango PID file $MA_DATA/ma.pid does not exist, did you start Mango using start-mango.sh?"
 	exit 2
 fi
 
